@@ -1,2 +1,265 @@
 # Gene-expression-meta-analysis-codes
 Vote-counting strategy and Montecarlo simulation
+
+all_sheets_data <- list()
+
+# Get the sheet names in the Excel file
+sheet_names <- excel_sheets(file_path)
+
+# Function to convert all columns to character to avoid type issues
+convert_to_character <- function(df) {
+    df[] <- lapply(df, as.character)
+    return(df)
+}
+
+# Read data from each sheet, remove duplicates and keep the one with the highest fold change
+for (sheet in sheet_names) {
+  sheet_data <- read_excel(file_path, sheet = sheet)
+  sheet_data$Sheet <- sheet  # Add the sheet number
+  
+  # Convert all columns to character to avoid type issues
+  sheet_data <- convert_to_character(sheet_data)
+  
+  # Ensure "Fold change", "N samples" and "N subjects" columns are numeric
+  sheet_data$`Fold change` <- as.numeric(sheet_data$`Fold change`)
+  sheet_data$`N samples` <- as.numeric(sheet_data$`N samples`)
+  sheet_data$`N subjects` <- as.numeric(sheet_data$`N subjects`)
+  
+  # Remove duplicates based on Entrez ID and keep the one with the highest fold change
+  sheet_data <- sheet_data %>%
+    group_by(Entrez) %>%
+    filter(`Fold change` == max(`Fold change`, na.rm = TRUE)) %>%
+    ungroup()
+  
+  all_sheets_data[[sheet]] <- sheet_data
+}
+
+# Combine all sheets into one dataframe
+all_data <- bind_rows(all_sheets_data)
+
+# Add the Direction column based on Fold change
+all_data <- all_data %>%
+  mutate(Direction = ifelse(`Fold change` > 0, "Upregulated", "Downregulated"))
+
+# Proceed with aggregation based on Entrez ID and collect associated Gene Symbols
+gene_summary_combined <- all_data %>%
+  group_by(Entrez) %>%
+  summarise(
+    Gene_Symbols = paste(unique(`Gene Symbol`), collapse = "; "),
+    Lists_in_agreement = max(sum(Direction == "Upregulated"), sum(Direction == "Downregulated")),
+    Upregulated_lists = sum(Direction == "Upregulated"),
+    Downregulated_lists = sum(Direction == "Downregulated"),
+    Total_samples = sum(`N samples`, na.rm = TRUE),
+    Mean_fold_change = mean(`Fold change`, na.rm = TRUE),
+    SD_fold_change = sd(`Fold change`, na.rm = TRUE),
+    Articles = paste(unique(Article), collapse = "; "),
+    .groups = 'drop'
+  ) %>%
+  arrange(desc(Lists_in_agreement), desc(Total_samples), desc(Mean_fold_change))
+
+# Export results to an Excel file, including the Gene Symbol
+save_path <- "path/to/save/Gene_Analysis_Combined_Summary.xlsx"
+wb <- createWorkbook()
+addWorksheet(wb, "Gene Summary Combined")
+writeData(wb, "Gene Summary Combined", gene_summary_combined)
+saveWorkbook(wb, save_path, overwrite = TRUE)
+
+cat("The file Gene_Analysis_Combined_Summary.xlsx has been successfully saved in", save_path)
+
+
+############################################
+
+library(readxl)
+library(dplyr)
+library(tidyr)
+
+# Path to the file with the gene lists
+file_path <- "path/to/data/4. MS vs CONTROL.xlsx"
+# Path to the file with the "gene universe"
+gene_universe_path <- "path/to/data/Gene_Universe_Cleaned.xlsx"
+
+# Read data from selected sheets
+sheets_to_read <- 1:9
+all_sheets_data <- list()
+
+for (i in sheets_to_read) {
+  sheet_data <- read_excel(file_path, sheet = i)
+  # Remove duplicates keeping the gene with the highest fold change
+  sheet_data <- sheet_data %>%
+    group_by(Entrez) %>%
+    filter(`Fold change` == max(`Fold change`, na.rm = TRUE)) %>%
+    ungroup()
+  all_sheets_data[[length(all_sheets_data) + 1]] <- sheet_data
+}
+
+# Combine all data into one dataframe
+all_data_combined <- bind_rows(all_sheets_data)
+
+# Filter genes based on the fold change with the same sign, using Entrez ID
+genes_with_same_sign <- all_data_combined %>%
+  group_by(Entrez) %>%
+  filter(n() > 1) %>% # Select genes present in more than one sheet
+  mutate(sign = sign(`Fold change`)) %>% # Calculate the sign of the fold change
+  group_by(Entrez, sign) %>%
+  filter(n() > 1) %>% # Filter for genes with the same sign of fold change in multiple sheets
+  ungroup() %>%
+  distinct(Entrez, .keep_all = TRUE) # Remove duplicates keeping unique rows
+
+# Calculate the observed overlap considering the sign of the fold change
+observed_overlap <- nrow(genes_with_same_sign)
+
+# Print the number of genes that overlap with the same fold change sign
+print(observed_overlap)
+
+# Import the "gene universe"
+gene_universe <- read_excel(gene_universe_path)
+gene_universe_cleaned <- gene_universe
+
+# Calculate the sizes (number of rows) of the observed lists
+list_sizes <- sapply(all_sheets_data, nrow)
+
+# Number of simulations for Monte Carlo simulation
+n_simulations <- 10000
+
+# Initialize a vector to store the simulated overlaps
+simulated_overlaps <- numeric(n_simulations)
+
+# Monte Carlo simulation to generate simulated overlaps
+for (i in 1:n_simulations) {
+    simulated_genes_lists <- lapply(list_sizes, function(x) {
+        sample(gene_universe_cleaned$`Gene Symbol`, x, replace = TRUE)
+    })
+    
+    simulated_genes <- unlist(simulated_genes_lists)
+    
+    # Calculate the simulated overlap
+    simulated_overlap <- sum(duplicated(simulated_genes))
+    
+    # Save the simulated overlap
+    simulated_overlaps[i] <- simulated_overlap
+}
+
+# Calculate the p-value by comparing the observed overlap with the simulated overlaps
+p_value <- mean(simulated_overlaps >= observed_overlap)
+
+# Print the p-value
+print(p_value)
+
+# Print the sizes of the lists
+print(list_sizes)
+
+# Combine all data into one dataframe
+all_data_combined <- bind_rows(all_sheets_data)
+
+# Create a new column indicating the sign of the fold change
+all_data_combined <- all_data_combined %>%
+  mutate(sign = ifelse(`Fold change` > 0, "positive", "negative"))
+
+# Count the frequency of each gene considering the sign of the fold change, using Entrez ID
+gene_sign_combinations <- all_data_combined %>%
+  unite("GeneSign", c("Entrez", "sign"), sep="_") %>%
+  pull(GeneSign) %>%
+  table()
+
+# Calculate how many genes have a specific overlap of 2, 3, 4, 5, and 6 considering the sign of the fold change
+overlap_counts <- sapply(2:6, function(x) sum(gene_sign_combinations == x))
+
+# Assign names to clarify to which overlap each count refers
+names(overlap_counts) <- paste(2:6, "overlap", sep=" ")
+
+# Print the specific overlap counts
+print(overlap_counts)
+
+# Number of simulations
+n_simulations <- 10000
+
+# Initialize matrices to store simulated overlaps for each level
+simulated_overlaps <- matrix(0, nrow = n_simulations, ncol = 5)
+
+# Perform the Monte Carlo simulation
+for (i in 1:n_simulations) {
+    # Generate simulated lists with the same sizes as the observed lists, using Gene Symbol
+    simulated_genes_lists <- lapply(list_sizes, function(x) {
+        sample(gene_universe_cleaned$`Gene Symbol`, x, replace = TRUE)
+    })
+    
+    # Combine simulated genes into one vector
+    simulated_genes <- unlist(simulated_genes_lists)
+    
+    # Calculate the frequency of each simulated gene
+    simulated_gene_frequencies <- table(simulated_genes)
+    
+    # Count the simulated overlaps for 2, 3, 4, 5, and 6
+    for (j in 2:6) {
+        simulated_overlaps[i, j-1] <- sum(simulated_gene_frequencies == j)
+    }
+}
+
+# Calculate the p-values for each overlap level
+p_values <- sapply(1:5, function(j) {
+    mean(simulated_overlaps[, j] >= overlap_counts[paste(j+1, "overlap", sep=" ")])
+})
+
+# Assign names to the p-values for clarity
+names(p_values) <- paste(2:6, "overlap p-value", sep=" ")
+
+# Print the p-values
+print(p_values)
+
+# Calculate the mean of genes overlapping 2 and 3 times
+mean_overlap_2 <- mean(simulated_overlaps[, 1])
+mean_overlap_3 <- mean(simulated_overlaps[, 2])
+
+print(paste("Mean genes overlapping 2 times:", mean_overlap_2))
+print(paste("Mean genes overlapping 3 times:", mean_overlap_3))
+
+# Calculate the 95% confidence interval (CI) for overlapping 2 and 3 times
+ci_overlap_2 <- quantile(simulated_overlaps[, 1], probs = c(0.025, 0.975))
+ci_overlap_3 <- quantile(simulated_overlaps[, 2], probs = c(0.025, 0.975))
+
+print(paste("95% CI for genes overlapping 2 times:", paste(ci_overlap_2[1], ci_overlap_2[2], sep=" - ")))
+print(paste("95% CI for genes overlapping 3 times:", paste(ci_overlap_3[1], ci_overlap_3[2], sep=" - ")))
+
+
+# Print the specific overlap counts
+print(overlap_counts)
+# [1] 469  17   0   0   0  # This is an example of output, not included in the final code
+
+library(openxlsx)
+
+# Path to save the Excel file
+save_path <- "path/to/save/Gene_Analysis_Results_Selective.xlsx"
+
+# Create a new workbook
+wb <- createWorkbook()
+
+# Add the observed overlap counts data
+addWorksheet(wb, "Observed Overlap")
+writeData(wb, "Observed Overlap", data.frame(Observed_Overlap = observed_overlap))
+
+# Add the p-values for each overlap level
+addWorksheet(wb, "P-values")
+writeData(wb, "P-values", data.frame(Overlap = names(p_values), P_value = p_values))
+
+# Add the means of the simulated overlaps
+addWorksheet(wb, "Mean Overlaps")
+writeData(wb, "Mean Overlaps", data.frame(Overlap_Times = c(2, 3), Mean_Overlap = c(mean_overlap_2, mean_overlap_3)))
+
+# Add the confidence intervals (CI) of the simulated overlaps
+addWorksheet(wb, "Confidence Intervals")
+ci_data <- data.frame(
+  Overlap_Times = c(2, 3),
+  CI_Lower = c(ci_overlap_2[1], ci_overlap_3[1]),
+  CI_Upper = c(ci_overlap_2[2], ci_overlap_3[2])
+)
+writeData(wb, "Confidence Intervals", ci_data)
+
+# Add the specific overlap counts
+addWorksheet(wb, "Overlap Counts")
+writeData(wb, "Overlap Counts", data.frame(Overlap = names(overlap_counts), Count = overlap_counts))
+
+# Save the workbook
+saveWorkbook(wb, save_path, overwrite = TRUE)
+
+cat("The file Gene_Analysis_Results_Selective.xlsx has been successfully saved in", save_path)
+
