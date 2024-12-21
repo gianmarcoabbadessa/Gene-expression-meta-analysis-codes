@@ -1,262 +1,325 @@
-all_sheets_data <- list()
 
-# Get the sheet names in the Excel file
-sheet_names <- excel_sheets(file_path)
+ # Load necessary libraries
+ library(WGCNA)
+ library(readxl)
+ library(dplyr)
+ library(tidyr)
+ library(edgeR)
+ library(tibble)
+ library(dplyr)
+ library(lme4)
+ library(tidyr)
+ 
 
-# Function to convert all columns to character to avoid type issues
-convert_to_character <- function(df) {
-    df[] <- lapply(df, as.character)
-    return(df)
-}
+#EXPRESSION MATRIX PRE-PROCESSING
+ # Step 1: Define samples to be removed (demyelinated and remyelinated lesions)
+ samples_to_remove <- c("GSM4114302", "GSM4114376", "GSM4114377", "GSM4114390", "GSM4114392",
+                        "GSM4114364", "GSM4114365", "GSM4114370", "GSM4114373", "GSM4114375",
+                        "GSM4114378", "GSM4114379", "GSM4114380", "GSM4114382", "GSM4114383",
+                        "GSM4114387", "GSM4114388", "GSM4114391", "GSM4114393")
+ 
+ # Step 2: Load and filter the count matrix
+ file_path <- "file_path/GSE138614_norm_counts_TPM_GRCh38.p13_NCBI.tsv"
+ 
+ tpm_matrix <- read.table(file_path, header = TRUE, row.names = 1, sep = "\t")
+ 
+ filtered_matrix <- tpm_matrix[, !colnames(tpm_matrix) %in% samples_to_remove]
+ 
+ # Calculate variance for each gene and filter
+ gene_variances <- apply(filtered_matrix, 1, var)
+ filtered_matrix <- filtered_matrix[gene_variances > 0, ]
+ 
+ # Log-transform the filtered matrix
+ log_filtered_matrix <- log2(filtered_matrix + 0.001)
+ 
+ # Scale and center the log-transformed matrix
+ filtered_matrix <- scale(log_filtered_matrix, center = TRUE, scale = TRUE)
 
-# Read data from each sheet, remove duplicates and keep the one with the highest fold change
-for (sheet in sheet_names) {
-  sheet_data <- read_excel(file_path, sheet = sheet)
-  sheet_data$Sheet <- sheet  # Add the sheet number
+ # Print remaining genes
+ cat("Numero di geni rimanenti:", nrow(filtered_matrix), "\n")
+ 
+ 
+ # Metadata file creation with Sample_ID e Individual_ID from GSE138614
+ metadata <- data.frame(
+   Sample_ID = c("GSM4114296", "GSM4114297", "GSM4114298", "GSM4114299", "GSM4114300", "GSM4114301",
+                 "GSM4114302", "GSM4114303", "GSM4114304", "GSM4114305", "GSM4114306", "GSM4114307",
+                 "GSM4114308", "GSM4114309", "GSM4114310", "GSM4114311", "GSM4114312", "GSM4114313",
+                 "GSM4114314", "GSM4114315", "GSM4114316", "GSM4114317", "GSM4114318", "GSM4114319",
+                 "GSM4114320", "GSM4114321", "GSM4114322", "GSM4114323", "GSM4114324", "GSM4114325",
+                 "GSM4114326", "GSM4114327", "GSM4114328", "GSM4114329", "GSM4114330", "GSM4114331",
+                 "GSM4114332", "GSM4114333", "GSM4114334", "GSM4114335", "GSM4114336", "GSM4114337",
+                 "GSM4114338", "GSM4114339", "GSM4114340", "GSM4114341", "GSM4114342", "GSM4114343",
+                 "GSM4114344", "GSM4114345", "GSM4114346", "GSM4114347", "GSM4114348", "GSM4114349",
+                 "GSM4114350", "GSM4114351", "GSM4114352", "GSM4114353", "GSM4114354", "GSM4114355",
+                 "GSM4114356", "GSM4114357", "GSM4114358", "GSM4114359", "GSM4114360", "GSM4114361",
+                 "GSM4114362", "GSM4114363", "GSM4114364", "GSM4114365", "GSM4114366", "GSM4114367",
+                 "GSM4114368", "GSM4114369", "GSM4114370", "GSM4114371", "GSM4114372", "GSM4114373",
+                 "GSM4114374", "GSM4114375", "GSM4114376", "GSM4114377", "GSM4114378", "GSM4114379",
+                 "GSM4114380", "GSM4114381", "GSM4114382", "GSM4114383", "GSM4114384", "GSM4114385",
+                 "GSM4114386", "GSM4114387", "GSM4114388", "GSM4114389", "GSM4114390", "GSM4114391",
+                 "GSM4114392", "GSM4114393"),
+   
+   Individual_ID = c("C3", "MS7", "MS6", "MS4", "MS8", "MS8", "MS10", "C5", "MS8", "C5",
+                     "MS3", "MS3", "C5", "MS4", "MS5", "C4", "MS3", "C2", "C4", "MS8",
+                     "MS4", "MS4", "MS1", "C1", "C5", "C3", "MS3", "C4", "MS4", "MS8",
+                     "MS3", "C2", "C5", "C4", "MS5", "MS3", "MS8", "MS6", "MS10", "MS8",
+                     "MS3", "MS4", "MS1", "MS3", "MS1", "MS8", "MS6", "MS9", "MS8", "MS5",
+                     "MS6", "MS4", "C3", "C4", "C3", "C1", "C1", "C2", "C1", "C1", "C2",
+                     "C2", "C3", "MS5", "MS4", "MS6", "MS6", "MS5", "MS2", "MS6", "MS1",
+                     "MS6", "MS10", "MS1", "MS2", "MS1", "MS2", "MS2", "MS10", "MS2", "MS3",
+                     "MS7", "MS9", "MS9", "MS4", "MS7", "MS9", "MS2", "MS6", "MS4", "MS7",
+                     "MS9", "MS9", "MS5", "MS6", "MS9", "MS6", "MS9")
+ )
+ 
+ 
+ 
+ # Filter metadata
+ metadata_filtered <- metadata[!metadata$Sample_ID %in% samples_to_remove, ]
+ 
+ # Verify correspondence with the expression matrix
+ samples_in_matrix <- colnames(filtered_matrix)
+ metadata_filtered <- metadata[metadata$Sample_ID %in% samples_in_matrix, ]
+ 
+ 
+ # Convert the matrix to a data frame
+ filtered_matrix <- as.data.frame(filtered_matrix)
+ 
+ # Add a column for row names (GeneID)
+ filtered_matrix <- filtered_matrix %>%
+   rownames_to_column(var = "GeneID")
+ 
+ # Makes the dataset in a long format
+ expression_long <- filtered_matrix %>%
+   pivot_longer(
+     cols = -GeneID, 
+     names_to = "Sample_ID", 
+     values_to = "Expression"
+   ) %>%
+   left_join(metadata_filtered, by = "Sample_ID")  # Associa i metadati ai campioni
   
-  # Convert all columns to character to avoid type issues
-  sheet_data <- convert_to_character(sheet_data)
-  
-  # Ensure "Fold change", "N samples" and "N subjects" columns are numeric
-  sheet_data$`Fold change` <- as.numeric(sheet_data$`Fold change`)
-  sheet_data$`N samples` <- as.numeric(sheet_data$`N samples`)
-  sheet_data$`N subjects` <- as.numeric(sheet_data$`N subjects`)
-  
-  # Remove duplicates based on Entrez ID and keep the one with the highest fold change
-  sheet_data <- sheet_data %>%
-    group_by(Entrez) %>%
-    filter(`Fold change` == max(`Fold change`, na.rm = TRUE)) %>%
-    ungroup()
-  
-  all_sheets_data[[sheet]] <- sheet_data
-}
-
-# Combine all sheets into one dataframe
-all_data <- bind_rows(all_sheets_data)
-
-# Add the Direction column based on Fold change
-all_data <- all_data %>%
-  mutate(Direction = ifelse(`Fold change` > 0, "Upregulated", "Downregulated"))
-
-# Proceed with aggregation based on Entrez ID and collect associated Gene Symbols
-gene_summary_combined <- all_data %>%
-  group_by(Entrez) %>%
-  summarise(
-    Gene_Symbols = paste(unique(`Gene Symbol`), collapse = "; "),
-    Lists_in_agreement = max(sum(Direction == "Upregulated"), sum(Direction == "Downregulated")),
-    Upregulated_lists = sum(Direction == "Upregulated"),
-    Downregulated_lists = sum(Direction == "Downregulated"),
-    Total_samples = sum(`N samples`, na.rm = TRUE),
-    Mean_fold_change = mean(`Fold change`, na.rm = TRUE),
-    SD_fold_change = sd(`Fold change`, na.rm = TRUE),
-    Articles = paste(unique(Article), collapse = "; "),
-    .groups = 'drop'
-  ) %>%
-  arrange(desc(Lists_in_agreement), desc(Total_samples), desc(Mean_fold_change))
-
-# Export results to an Excel file, including the Gene Symbol
-save_path <- "path/to/save/Gene_Analysis_Combined_Summary.xlsx"
-wb <- createWorkbook()
-addWorksheet(wb, "Gene Summary Combined")
-writeData(wb, "Gene Summary Combined", gene_summary_combined)
-saveWorkbook(wb, save_path, overwrite = TRUE)
-
-cat("The file Gene_Analysis_Combined_Summary.xlsx has been successfully saved in", save_path)
-
-
-############################################
-
-library(readxl)
-library(dplyr)
-library(tidyr)
-
-# Path to the file with the gene lists
-file_path <- "path/to/data/4. MS vs CONTROL.xlsx"
-# Path to the file with the "gene universe"
-gene_universe_path <- "path/to/data/Gene_Universe_Cleaned.xlsx"
-
-# Read data from selected sheets
-sheets_to_read <- 1:9
-all_sheets_data <- list()
-
-for (i in sheets_to_read) {
-  sheet_data <- read_excel(file_path, sheet = i)
-  # Remove duplicates keeping the gene with the highest fold change
-  sheet_data <- sheet_data %>%
-    group_by(Entrez) %>%
-    filter(`Fold change` == max(`Fold change`, na.rm = TRUE)) %>%
-    ungroup()
-  all_sheets_data[[length(all_sheets_data) + 1]] <- sheet_data
-}
-
-# Combine all data into one dataframe
-all_data_combined <- bind_rows(all_sheets_data)
-
-# Filter genes based on the fold change with the same sign, using Entrez ID
-genes_with_same_sign <- all_data_combined %>%
-  group_by(Entrez) %>%
-  filter(n() > 1) %>% # Select genes present in more than one sheet
-  mutate(sign = sign(`Fold change`)) %>% # Calculate the sign of the fold change
-  group_by(Entrez, sign) %>%
-  filter(n() > 1) %>% # Filter for genes with the same sign of fold change in multiple sheets
-  ungroup() %>%
-  distinct(Entrez, .keep_all = TRUE) # Remove duplicates keeping unique rows
-
-# Calculate the observed overlap considering the sign of the fold change
-observed_overlap <- nrow(genes_with_same_sign)
-
-# Print the number of genes that overlap with the same fold change sign
-print(observed_overlap)
-
-# Import the "gene universe"
-gene_universe <- read_excel(gene_universe_path)
-gene_universe_cleaned <- gene_universe
-
-# Calculate the sizes (number of rows) of the observed lists
-list_sizes <- sapply(all_sheets_data, nrow)
-
-# Number of simulations for Monte Carlo simulation
-n_simulations <- 10000
-
-# Initialize a vector to store the simulated overlaps
-simulated_overlaps <- numeric(n_simulations)
-
-# Monte Carlo simulation to generate simulated overlaps
-for (i in 1:n_simulations) {
-    simulated_genes_lists <- lapply(list_sizes, function(x) {
-        sample(gene_universe_cleaned$`Gene Symbol`, x, replace = TRUE)
-    })
-    
-    simulated_genes <- unlist(simulated_genes_lists)
-    
-    # Calculate the simulated overlap
-    simulated_overlap <- sum(duplicated(simulated_genes))
-    
-    # Save the simulated overlap
-    simulated_overlaps[i] <- simulated_overlap
-}
-
-# Calculate the p-value by comparing the observed overlap with the simulated overlaps
-p_value <- mean(simulated_overlaps >= observed_overlap)
-
-# Print the p-value
-print(p_value)
-
-# Print the sizes of the lists
-print(list_sizes)
-
-# Combine all data into one dataframe
-all_data_combined <- bind_rows(all_sheets_data)
-
-# Create a new column indicating the sign of the fold change
-all_data_combined <- all_data_combined %>%
-  mutate(sign = ifelse(`Fold change` > 0, "positive", "negative"))
-
-# Count the frequency of each gene considering the sign of the fold change, using Entrez ID
-gene_sign_combinations <- all_data_combined %>%
-  unite("GeneSign", c("Entrez", "sign"), sep="_") %>%
-  pull(GeneSign) %>%
-  table()
-
-# Calculate how many genes have a specific overlap of 2, 3, 4, 5, and 6 considering the sign of the fold change
-overlap_counts <- sapply(2:6, function(x) sum(gene_sign_combinations == x))
-
-# Assign names to clarify to which overlap each count refers
-names(overlap_counts) <- paste(2:6, "overlap", sep=" ")
-
-# Print the specific overlap counts
-print(overlap_counts)
-
-# Number of simulations
-n_simulations <- 10000
-
-# Initialize matrices to store simulated overlaps for each level
-simulated_overlaps <- matrix(0, nrow = n_simulations, ncol = 5)
-
-# Perform the Monte Carlo simulation
-for (i in 1:n_simulations) {
-    # Generate simulated lists with the same sizes as the observed lists, using Gene Symbol
-    simulated_genes_lists <- lapply(list_sizes, function(x) {
-        sample(gene_universe_cleaned$`Gene Symbol`, x, replace = TRUE)
-    })
-    
-    # Combine simulated genes into one vector
-    simulated_genes <- unlist(simulated_genes_lists)
-    
-    # Calculate the frequency of each simulated gene
-    simulated_gene_frequencies <- table(simulated_genes)
-    
-    # Count the simulated overlaps for 2, 3, 4, 5, and 6
-    for (j in 2:6) {
-        simulated_overlaps[i, j-1] <- sum(simulated_gene_frequencies == j)
-    }
-}
-
-# Calculate the p-values for each overlap level
-p_values <- sapply(1:5, function(j) {
-    mean(simulated_overlaps[, j] >= overlap_counts[paste(j+1, "overlap", sep=" ")])
-})
-
-# Assign names to the p-values for clarity
-names(p_values) <- paste(2:6, "overlap p-value", sep=" ")
-
-# Print the p-values
-print(p_values)
-
-# Calculate the mean of genes overlapping 2 and 3 times
-mean_overlap_2 <- mean(simulated_overlaps[, 1])
-mean_overlap_3 <- mean(simulated_overlaps[, 2])
-
-print(paste("Mean genes overlapping 2 times:", mean_overlap_2))
-print(paste("Mean genes overlapping 3 times:", mean_overlap_3))
-
-# Calculate the 95% confidence interval (CI) for overlapping 2 and 3 times
-ci_overlap_2 <- quantile(simulated_overlaps[, 1], probs = c(0.025, 0.975))
-ci_overlap_3 <- quantile(simulated_overlaps[, 2], probs = c(0.025, 0.975))
-
-print(paste("95% CI for genes overlapping 2 times:", paste(ci_overlap_2[1], ci_overlap_2[2], sep=" - ")))
-print(paste("95% CI for genes overlapping 3 times:", paste(ci_overlap_3[1], ci_overlap_3[2], sep=" - ")))
+ # Gene expression correction
+ correct_expression <- function(data) {
+   corrected_values <- list()
+   
+   unique_genes <- unique(data$GeneID)
+   for (gene in unique_genes) {
+     gene_data <- data %>% filter(GeneID == gene)
+     
+     # LMM: remove subject effect
+     model <- lmer(Expression ~ 1 + (1 | Individual_ID), data = gene_data)
+     
+     # Extract residuals
+     gene_data$Corrected_Expression <- resid(model)
+     
+     corrected_values[[gene]] <- gene_data
+   }
+   
+   # Combine results
+   corrected_data <- bind_rows(corrected_values)
+   return(corrected_data)
+ }
+ 
+ # Apply the function to correct expression values
+ corrected_expression_long <- correct_expression(expression_long)
+ 
+ # Make it wide again
+ corrected_expression_matrix <- corrected_expression_long %>%
+   select(Sample_ID, GeneID, Corrected_Expression) %>%
+   pivot_wider(names_from = GeneID, values_from = Corrected_Expression) %>%
+   column_to_rownames("Sample_ID") %>%
+   as.matrix()
+ 
+ 
+ # Calculate mean and standard deviation for the residuals
+ residual_stats <- corrected_expression_long %>%
+   group_by(GeneID) %>%
+   summarise(
+     Mean_Residuals = mean(Corrected_Expression, na.rm = TRUE),
+     SD_Residuals = sd(Corrected_Expression, na.rm = TRUE)
+   )
+ 
+ # Check overall statistics
+ overall_mean <- mean(residual_stats$Mean_Residuals)
+ overall_sd <- mean(residual_stats$SD_Residuals)
+ 
+ cat("Overall mean of residuals across all genes:", overall_mean, "\n")
+ cat("Overall standard deviation of residuals across all genes:", overall_sd, "\n")
+ 
+ # Preview statistics for a subset of genes
+ print(residual_stats %>% head())
+ 
+ 
+ # Scale residuals to have mean = 0 and standard deviation = 1 for each gene
+ corrected_expression_long <- corrected_expression_long %>%
+   group_by(GeneID) %>%
+   mutate(Scaled_Corrected_Expression = scale(Corrected_Expression, center = TRUE, scale = TRUE)) %>%
+   ungroup()
+ 
+ # Replace Corrected_Expression with Scaled_Corrected_Expression
+ corrected_expression_long <- corrected_expression_long %>%
+   mutate(Corrected_Expression = Scaled_Corrected_Expression) %>%
+   select(-Scaled_Corrected_Expression)
+ 
+ # Recreate the corrected expression matrix
+ corrected_expression_matrix <- corrected_expression_long %>%
+   select(Sample_ID, GeneID, Corrected_Expression) %>%
+   pivot_wider(names_from = GeneID, values_from = Corrected_Expression) %>%
+   column_to_rownames("Sample_ID") %>%
+   as.matrix()
+ 
+ cat("Residuals scaled. Corrected expression matrix updated.\n")
+ 
 
 
-# Print the specific overlap counts
-print(overlap_counts)
-# [1] 469  17   0   0   0  # This is an example of output, not included in the final code
 
-library(openxlsx)
-
-# Path to save the Excel file
-save_path <- "path/to/save/Gene_Analysis_Results_Selective.xlsx"
-
-# Create a new workbook
-wb <- createWorkbook()
-
-# Add the observed overlap counts data
-addWorksheet(wb, "Observed Overlap")
-writeData(wb, "Observed Overlap", data.frame(Observed_Overlap = observed_overlap))
-
-# Add the p-values for each overlap level
-addWorksheet(wb, "P-values")
-writeData(wb, "P-values", data.frame(Overlap = names(p_values), P_value = p_values))
-
-# Add the means of the simulated overlaps
-addWorksheet(wb, "Mean Overlaps")
-writeData(wb, "Mean Overlaps", data.frame(Overlap_Times = c(2, 3), Mean_Overlap = c(mean_overlap_2, mean_overlap_3)))
-
-# Add the confidence intervals (CI) of the simulated overlaps
-addWorksheet(wb, "Confidence Intervals")
-ci_data <- data.frame(
-  Overlap_Times = c(2, 3),
-  CI_Lower = c(ci_overlap_2[1], ci_overlap_3[1]),
-  CI_Upper = c(ci_overlap_2[2], ci_overlap_3[2])
-)
-writeData(wb, "Confidence Intervals", ci_data)
-
-# Add the specific overlap counts
-addWorksheet(wb, "Overlap Counts")
-writeData(wb, "Overlap Counts", data.frame(Overlap = names(overlap_counts), Count = overlap_counts))
-
-# Save the workbook
-saveWorkbook(wb, save_path, overwrite = TRUE)
-
-cat("The file Gene_Analysis_Results_Selective.xlsx has been successfully saved in", save_path)
-
+ #WGNCA ANALYSIS
+ expression_data <- as.matrix(corrected_expression_matrix)
+ storage.mode(expression_data) <- "numeric"
+ 
+ # Step 3: Calculate adjacency and TOM matrices
+ power <- 12 
+ adjacency_matrix <- adjacency(expression_data, power = power, type = "signed")
+ TOM_matrix <- TOMsimilarity(adjacency_matrix, TOMType = "signed")
+ 
+ # Step 4: Calculate connectivity scores 
+ # Whole network connectivity based on TOM matrix
+ whole_network_connectivity_TOM <- rowSums(TOM_matrix)
+ gene_weights_TOM <- whole_network_connectivity_TOM / sum(whole_network_connectivity_TOM)
+ 
+ # Parameters for simulation
+ gene_universe <- rownames(filtered_matrix)  # Define the universe of genes as row names of the filtered expression matrix.
+ list_sizes <- sapply(all_sheets_data, nrow)  # Calculate the sizes of observed gene lists from the data frames in `all_sheets_data`.
+ 
+ 
+ 
+ #CALCULATE OBSERVED OVERLAP
+ # Load necessary libraries
+ library(WGCNA)
+ library(readxl)
+ library(dplyr)
+ library(tidyr)
+ library(edgeR)
+ 
+ # Step 1: assess the observed overlap across the 9 studies included in the meta-analysis
+ # Load and process observed data
+ excel_path <- "file_path"
+ sheet_names <- excel_sheets(excel_path)
+ 
+ # Process each sheet: Convert Entrez to numeric, remove NA in Entrez column, remove P value column, remove all within-sheet duplicates
+ all_sheets_data <- lapply(sheet_names, function(sheet) {
+   read_excel(excel_path, sheet = sheet) %>%
+     mutate(Entrez = as.character(Entrez)) %>%
+     filter(!is.na(Entrez)) %>%
+     select(-`P value`, `Entrez`, `Gene Symbol`, `Fold change`) %>%
+     group_by(Entrez) %>%
+     filter(`Fold change` == max(`Fold change`, na.rm = TRUE)) %>%
+     ungroup() %>%
+     distinct(Entrez, .keep_all = TRUE)
+ })
+ 
+ # Combine all sheets into a single dataframe
+ all_data_combined <- bind_rows(all_sheets_data)
+ 
+ # Identify genes that appear in at least 2 lists with the same sign
+ genes_with_same_sign <- all_data_combined %>%
+   group_by(Entrez) %>%
+   filter(n() > 1) %>%
+   mutate(sign = sign(`Fold change`)) %>%
+   group_by(Entrez, sign) %>%
+   filter(n() > 1) %>%
+   ungroup() %>%
+   distinct(Entrez, .keep_all = TRUE)
+ 
+ # Count and list overlapping genes
+ observed_overlap <- nrow(genes_with_same_sign)
+ overlapping_genes_list <- genes_with_same_sign %>% select(Entrez, `Gene Symbol`, `Fold change`, sign)
+ 
+ # Print results
+ cat("Observed Overlap Count:", observed_overlap, "\n")
+ print(overlapping_genes_list)
+ 
+ 
+ #MONTE CARLO SIMULATIONS
+ 
+ # Monte Carlo simulation for weighted sampling
+ run_weighted_simulation <- function(gene_weights, gene_universe, list_sizes, observed_overlap, n_simulations = 10000) {
+   simulated_overlaps <- numeric(n_simulations)
+   
+   for (i in 1:n_simulations) {
+     simulated_genes_lists <- lapply(list_sizes, function(list_size) {
+       sample(gene_universe, size = list_size, prob = gene_weights, replace = FALSE)
+     })
+     simulated_genes <- unlist(simulated_genes_lists)
+     simulated_overlaps[i] <- sum(duplicated(simulated_genes))
+   }
+   
+   list(
+     simulated_overlaps = simulated_overlaps,
+     mean_overlap = mean(simulated_overlaps),
+     sd_overlap = sd(simulated_overlaps),
+     p_value = mean(simulated_overlaps >= observed_overlap)
+   )
+ }
+ 
+ # Monte Carlo simulation for random sampling
+ run_random_simulation <- function(gene_universe, list_sizes, observed_overlap, n_simulations = 10000) {
+   simulated_overlaps <- numeric(n_simulations)
+   
+   for (i in 1:n_simulations) {
+     simulated_genes_lists <- lapply(list_sizes, function(list_size) {
+       sample(gene_universe, size = list_size, replace = FALSE)
+     })
+     simulated_genes <- unlist(simulated_genes_lists)
+     simulated_overlaps[i] <- sum(duplicated(simulated_genes))
+   }
+   
+   list(
+     simulated_overlaps = simulated_overlaps,
+     mean_overlap = mean(simulated_overlaps),
+     sd_overlap = sd(simulated_overlaps),
+     p_value = mean(simulated_overlaps >= observed_overlap)
+   )
+ }
+ 
+ # Run simulations
+ set.seed(123)
+ results_weighted <- run_weighted_simulation(gene_weights_TOM, gene_universe, list_sizes, observed_overlap)
+ results_random <- run_random_simulation(gene_universe, list_sizes, observed_overlap)
+ 
+ cat("Weighted Simulation Results\n")
+ print(results_weighted)
+ 
+ cat("\nRandom Simulation Results\n")
+ print(results_random)
+ 
+ 
+ # Plot the histogram of simulated overlaps for both methods
+ library(ggplot2)
+ 
+ # Prepare data for plotting
+ simulated_data <- data.frame(
+   Overlap = c(results_weighted$simulated_overlaps, results_random$simulated_overlaps),
+   Method = c(rep("Weighted", length(results_weighted$simulated_overlaps)),
+              rep("Random", length(results_random$simulated_overlaps)))
+ )
+ 
+ # Generate the plot
+ ggplot(simulated_data, aes(x = Overlap, fill = Method)) +
+   geom_histogram(binwidth = 1, position = "identity", alpha = 0.5, color = "black") +
+   geom_vline(xintercept = observed_overlap, color = "red", linetype = "dashed", linewidth = 1) +
+   labs(
+     title = "Distribution of Simulated Overlaps (Weighted vs. Random)",
+     x = "Number of Overlapping Genes",
+     y = "Frequency (Number of Simulations)"
+   ) +
+   scale_fill_manual(values = c("blue", "green"), name = "Simulation Method") +
+   theme_minimal() +
+   theme(
+     plot.title = element_text(hjust = 0.5, size = 28),  # Doubled size of the title
+     axis.title = element_text(size = 24),              # Doubled size of axis labels
+     axis.text = element_text(size = 20),               # Doubled size of axis numbers
+     legend.title = element_text(size = 24),            # Doubled size of legend title
+     legend.text = element_text(size = 20)              # Doubled size of legend text
+   )
+ 
+ 
