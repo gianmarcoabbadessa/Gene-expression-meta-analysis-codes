@@ -19,7 +19,7 @@
                         "GSM4114387", "GSM4114388", "GSM4114391", "GSM4114393")
  
  # Step 2: Load and filter the count matrix
-file_path <- "/Users/gianmarcoabba/Desktop/METANALYSIS GENE EXPRESSION MS FINAL/REVISION_META-ANALYSIS_ANNALS/GSE138614_norm_counts_TPM_GRCh38.p13_NCBI.tsv"
+file_path <- "filepath/GSE138614_norm_counts_TPM_GRCh38.p13_NCBI.tsv"
  
  tpm_matrix <- read.table(file_path, header = TRUE, row.names = 1, sep = "\t")
  
@@ -205,7 +205,7 @@ file_path <- "/Users/gianmarcoabba/Desktop/METANALYSIS GENE EXPRESSION MS FINAL/
  
  # Step 1: assess the observed overlap across the 9 studies included in the meta-analysis
  # Load and process observed data
- excel_path <- "/Users/gianmarcoabba/Desktop/PROVA_SIMULAZIONE/4. MS vs CONTROL.xlsx"
+ excel_path <- "filepath"
  sheet_names <- excel_sheets(excel_path)
  
  # Process each sheet: Convert Entrez to CHARACTER, remove NA in Entrez column, remove P value column, remove all within-sheet duplicates
