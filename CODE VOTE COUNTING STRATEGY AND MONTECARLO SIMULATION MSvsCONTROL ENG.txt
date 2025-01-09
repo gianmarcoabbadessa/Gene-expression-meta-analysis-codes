@@ -1,5 +1,5 @@
 
- # Load necessary libraries
+  Load necessary libraries
  library(WGCNA)
  library(readxl)
  library(dplyr)
@@ -19,7 +19,7 @@
                         "GSM4114387", "GSM4114388", "GSM4114391", "GSM4114393")
  
  # Step 2: Load and filter the count matrix
- file_path <- "file_path/GSE138614_norm_counts_TPM_GRCh38.p13_NCBI.tsv"
+file_path <- "/Users/gianmarcoabba/Desktop/METANALYSIS GENE EXPRESSION MS FINAL/REVISION_META-ANALYSIS_ANNALS/GSE138614_norm_counts_TPM_GRCh38.p13_NCBI.tsv"
  
  tpm_matrix <- read.table(file_path, header = TRUE, row.names = 1, sep = "\t")
  
@@ -118,7 +118,10 @@
    corrected_data <- bind_rows(corrected_values)
    return(corrected_data)
  }
- 
+
+
+
+
  # Apply the function to correct expression values
  corrected_expression_long <- correct_expression(expression_long)
  
@@ -202,20 +205,20 @@
  
  # Step 1: assess the observed overlap across the 9 studies included in the meta-analysis
  # Load and process observed data
- excel_path <- "file_path"
+ excel_path <- "/Users/gianmarcoabba/Desktop/PROVA_SIMULAZIONE/4. MS vs CONTROL.xlsx"
  sheet_names <- excel_sheets(excel_path)
  
- # Process each sheet: Convert Entrez to numeric, remove NA in Entrez column, remove P value column, remove all within-sheet duplicates
+ # Process each sheet: Convert Entrez to CHARACTER, remove NA in Entrez column, remove P value column, remove all within-sheet duplicates
  all_sheets_data <- lapply(sheet_names, function(sheet) {
-   read_excel(excel_path, sheet = sheet) %>%
-     mutate(Entrez = as.character(Entrez)) %>%
-     filter(!is.na(Entrez)) %>%
-     select(-`P value`, `Entrez`, `Gene Symbol`, `Fold change`) %>%
-     group_by(Entrez) %>%
-     filter(`Fold change` == max(`Fold change`, na.rm = TRUE)) %>%
-     ungroup() %>%
-     distinct(Entrez, .keep_all = TRUE)
- })
+  read_excel(excel_path, sheet = sheet) %>%
+    mutate(Entrez = as.character(Entrez)) %>% # ATTENTION n.4
+    filter(!is.na(Entrez)) %>%
+    select(-`P value`, `Entrez`, `Gene Symbol`, `Fold change`) %>%
+    arrange(Entrez, desc(abs(`Fold change`))) %>%  #order `Fold change` by descending absolute value
+    distinct(Entrez, .keep_all = TRUE)          
+})
+
+
  
  # Combine all sheets into a single dataframe
  all_data_combined <- bind_rows(all_sheets_data)
@@ -322,4 +325,64 @@
      legend.text = element_text(size = 20)              # Doubled size of legend text
    )
  
+
+
+ #######specific overlap##########
+ 
+ # Print the sizes of the observed lists
+ print(list_sizes)
+ 
+ # Combine all observed data into a single dataframe and add a sign column
+ all_data_combined <- bind_rows(all_sheets_data) %>%
+   mutate(sign = ifelse(`Fold change` > 0, "positive", "negative"))
+ 
+ # Count frequency of each gene with sign (Entrez ID and sign) to calculate overlap counts
+ gene_sign_combinations <- all_data_combined %>%
+   unite("GeneSign", c("Entrez", "sign"), sep = "_") %>%
+   pull(GeneSign) %>%
+   table()
+ 
+ # Calculate observed overlap counts for 2, 3, 4, 5, and 6 times considering fold change sign
+ overlap_counts <- sapply(2:6, function(x) sum(gene_sign_combinations == x))
+ names(overlap_counts) <- paste(2:6, "overlap", sep = " ")
+ 
+ # Print the overlap counts
+ print(overlap_counts)
+ 
+ # Number of simulations
+ n_simulations <- 10000
+ simulated_overlaps_matrix <- matrix(0, nrow = n_simulations, ncol = 5)
+ set.seed(123)
+ 
+ # Monte Carlo simulation for specific overlaps (2, 3, 4, 5, and 6)
+ for (i in 1:n_simulations) {
+   simulated_genes_lists <- lapply(list_sizes, function(x) {
+     sample(gene_universe, x, prob = gene_weights_TOM, replace = FALSE)
+   })
+   simulated_genes <- unlist(simulated_genes_lists)
+   simulated_gene_frequencies <- table(simulated_genes)
+   for (j in 2:6) {
+     simulated_overlaps_matrix[i, j - 1] <- sum(simulated_gene_frequencies == j)
+   }
+ }
+ 
+ # Calculate p-values, mean, and confidence intervals
+ p_values <- sapply(1:5, function(j) mean(simulated_overlaps_matrix[, j] >= overlap_counts[paste(j + 1, "overlap", sep = " ")]))
+ names(p_values) <- paste(2:6, "overlap p-value", sep = " ")
+ print(p_values)
+ 
+ # Calculate mean overlaps and confidence intervals for overlap counts of 2 and 3
+ mean_overlap_2 <- mean(simulated_overlaps_matrix[, 1])
+ mean_overlap_3 <- mean(simulated_overlaps_matrix[, 2])
+ mean_overlap_4 <- mean(simulated_overlaps_matrix[, 3])
+ ci_overlap_2 <- quantile(simulated_overlaps_matrix[, 1], probs = c(0.025, 0.975))
+ ci_overlap_3 <- quantile(simulated_overlaps_matrix[, 2], probs = c(0.025, 0.975))
+ ci_overlap_4 <- quantile(simulated_overlaps_matrix[, 3], probs = c(0.025, 0.975))
+ 
+ cat("Mean overlap (2 times):", mean_overlap_2, "\n")
+ cat("Mean overlap (3 times):", mean_overlap_3, "\n")
+ cat("Mean overlap (4 times):", mean_overlap_4, "\n")
+ cat("95% CI for overlap 2 times:", ci_overlap_2, "\n")
+ cat("95% CI for overlap 3 times:", ci_overlap_3, "\n")
+ cat("95% CI for overlap 4 times:", ci_overlap_4, "\n")
  
