@@ -21,7 +21,7 @@ WGCNA-based weighting approach for Monte Carlo simulations.
 Sensitivity analyses excluding lower-quality studies.
 Additional methodological notes and rationale.
 
-4)README.md
+4) README.md
 This file.
 
 Usage
