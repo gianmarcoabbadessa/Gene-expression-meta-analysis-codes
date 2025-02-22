@@ -24,12 +24,12 @@ Additional methodological notes and rationale.
 4) README.md
 This file.
 
-Usage
+Usage:
 Clone or download the repository.
 Open the .txt code file in R or RStudio.
-Install required packages, including: WGCNA, readxl, dplyr, tidyr, edgeR, tibble, lme4, ggplot2
-Edit file paths at the top of the code to match your local directory (e.g., the path to Gene lists mapped (filteredENTREZ-FC).xlsx).
-Run the script.
+(1)Install required packages, including: WGCNA, readxl, dplyr, tidyr, edgeR, tibble, lme4, ggplot2.
+(2)Edit file paths at the top of the code to match your local directory (e.g., the path to Gene lists mapped (filteredENTREZ-FC).xlsx).
+(3)Run the script.
 
 Reference
 If you use or adapt this code, please cite the paper:
