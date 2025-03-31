@@ -24,6 +24,8 @@ Additional methodological notes and rationale.
 4) README.md
 This file.
 
+5) Supplementary files: Table S1, S2, S3, S4, S5, S10. Figure S1-S9.
+
 Usage:
 Clone or download the repository.
 Open the .txt code file in R or RStudio.
